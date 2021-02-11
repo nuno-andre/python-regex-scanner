@@ -1,3 +1,5 @@
+from __future__ import unicode_literals
+
 from sre_parse import Pattern, SubPattern, parse
 from sre_compile import compile as sre_compile
 from sre_constants import BRANCH, SUBPATTERN
@@ -17,7 +19,7 @@ class _ScanMatch(object):
     def __group_proc(self, method, group):
         if group == 0:
             return method()
-        if isinstance(group, basestring):
+        if isinstance(group, (str, bytes)):
             return method(self._rule + '\x00' + group)
         real_group = self._start + group
         if real_group > self._end:
@@ -27,7 +29,7 @@ class _ScanMatch(object):
     def group(self, *groups):
         if len(groups) in (0, 1):
             return self.__group_proc(self._match.group,
-                                  groups and groups[0] or 0)
+                                     groups and groups[0] or 0)
         return tuple(self.__group_proc(self._match.group, group)
                      for group in groups)
 
