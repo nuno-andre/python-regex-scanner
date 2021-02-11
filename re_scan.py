@@ -8,6 +8,20 @@ except ImportError:
 from sre_compile import compile as sre_compile
 from sre_constants import BRANCH, SUBPATTERN
 
+# Flags to support modifier spans. Since 3.6
+import sre_parse
+
+if hasattr(sre_parse, 'GLOBAL_FLAGS'):
+    def subpatternsappend(subpatterns, group, action, flags, state):
+        subpatterns.append(SubPattern(state, [
+            (SUBPATTERN, (group, 0, 0, parse(action, flags, state))),
+        ]))
+else:
+    def subpatternsappend(subpatterns, group, action, flags, state):
+        subpatterns.append(SubPattern(state, [
+            (SUBPATTERN, (group, parse(action, flags, state))),
+        ]))
+
 
 class _ScanMatch(object):
 
@@ -70,25 +84,27 @@ class ScanEnd(Exception):
 
 class Scanner(object):
 
-    def __init__(self, rules, flags=0):
+    def __init__(self, lexicon, flags=0):
+        self.lexicon = lexicon
+        subpatterns = []
+
         state = State()
         state.flags = flags
-        state.groups = len(rules) + 1
-
         _og = state.opengroup
-        state.opengroup = lambda n: _og(n and '%s\x00%s' % (name, n) or n)
 
-        self.rules = []
-        subpatterns = []
-        for group, (name, regex) in enumerate(rules, 1):
+        def _opengroup(n=None):
+            return _og(n and '%s\x00%s' % (action, n) or n)
+
+        state.opengroup = _opengroup
+
+        for group, (action, phrase) in enumerate(lexicon, 1):
+            state.opengroup()
             last_group = state.groups - 1
-            subpatterns.append(SubPattern(state, [
-                (SUBPATTERN, (group, parse(regex, flags, state))),
-            ]))
-            self.rules.append((name, last_group, state.groups - 1))
+            subpatternsappend(subpatterns, group, phrase, flags, state)
+            self.lexicon.append((action, last_group, state.groups - 1))
 
-        self._scanner = sre_compile(SubPattern(
-            state, [(BRANCH, (None, subpatterns))])).scanner
+        subpatterns = SubPattern(state, [(BRANCH, (None, subpatterns))])
+        self._scanner = sre_compile(subpatterns).scanner
 
     def scan(self, string, skip=False):
         sc = self._scanner(string)
