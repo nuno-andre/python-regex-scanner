@@ -1,6 +1,10 @@
 from __future__ import unicode_literals
 
-from sre_parse import Pattern, SubPattern, parse
+# Pattern renamed back to State in 3.8.
+try:
+    from sre_parse import State, SubPattern, parse
+except ImportError:
+    from sre_parse import Pattern as State, SubPattern, parse
 from sre_compile import compile as sre_compile
 from sre_constants import BRANCH, SUBPATTERN
 
@@ -67,24 +71,24 @@ class ScanEnd(Exception):
 class Scanner(object):
 
     def __init__(self, rules, flags=0):
-        pattern = Pattern()
-        pattern.flags = flags
-        pattern.groups = len(rules) + 1
+        state = State()
+        state.flags = flags
+        state.groups = len(rules) + 1
 
-        _og = pattern.opengroup
-        pattern.opengroup = lambda n: _og(n and '%s\x00%s' % (name, n) or n)
+        _og = state.opengroup
+        state.opengroup = lambda n: _og(n and '%s\x00%s' % (name, n) or n)
 
         self.rules = []
         subpatterns = []
         for group, (name, regex) in enumerate(rules, 1):
-            last_group = pattern.groups - 1
-            subpatterns.append(SubPattern(pattern, [
-                (SUBPATTERN, (group, parse(regex, flags, pattern))),
+            last_group = state.groups - 1
+            subpatterns.append(SubPattern(state, [
+                (SUBPATTERN, (group, parse(regex, flags, state))),
             ]))
-            self.rules.append((name, last_group, pattern.groups - 1))
+            self.rules.append((name, last_group, state.groups - 1))
 
         self._scanner = sre_compile(SubPattern(
-            pattern, [(BRANCH, (None, subpatterns))])).scanner
+            state, [(BRANCH, (None, subpatterns))])).scanner
 
     def scan(self, string, skip=False):
         sc = self._scanner(string)
