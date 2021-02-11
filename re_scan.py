@@ -23,53 +23,54 @@ else:
         ]))
 
 
-class _ScanMatch(object):
+class ScanMatch(object):
+    __slots__ = ['_match', '_start', '_end', '_action']
 
-    def __init__(self, match, rule, start, end):
+    def __init__(self, match, action, start, end):
         self._match = match
         self._start = start
         self._end = end
-        self._rule = rule
+        self._action = action
 
     def __getattr__(self, name):
         return getattr(self._match, name)
 
-    def __group_proc(self, method, group):
+    def _group_proc(self, method, group):
         if group == 0:
             return method()
         if isinstance(group, (str, bytes)):
-            return method(self._rule + '\x00' + group)
+            return method('{}\x00{}'.format(self._action, group))
         real_group = self._start + group
         if real_group > self._end:
             raise IndexError('no such group')
         return method(real_group)
 
     def group(self, *groups):
-        if len(groups) in (0, 1):
-            return self.__group_proc(self._match.group,
-                                     groups and groups[0] or 0)
-        return tuple(self.__group_proc(self._match.group, group)
-                     for group in groups)
+        if not groups:
+            return self._group_proc(self._match.group, 0)
+        elif len(groups) == 1:
+            return self._group_proc(self._match.group, groups)
+        return tuple(self._group_proc(self._match.group, g) for g in groups)
 
     def groupdict(self, default=None):
-        prefix = self._rule + '\x00'
-        rv = {}
-        for key, value in self._match.groupdict(default).iteritems():
-            if key.startswith(prefix):
-                rv[key[len(prefix):]] = value
-        return rv
+        prefix = '{}\x00'.format(self._action)
+        preflen = len(prefix)
+
+        return {k[preflen:]: v
+                for k, v in self._match.groupdict(default).items()
+                if k[:preflen] == prefix}
 
     def span(self, group=0):
-        return self.__group_proc(self._match.span, group)
+        return self._group_proc(self._match.span, group)
 
     def groups(self):
         return self._match.groups()[self._start:self._end]
 
     def start(self, group=0):
-        return self.__group_proc(self._match.start, group)
+        return self._group_proc(self._match.start, group)
 
     def end(self, group=0):
-        return self.__group_proc(self._match.end, group)
+        return self._group_proc(self._match.end, group)
 
     def expand(self, template):
         raise RuntimeError('Unsupported on scan matches')
@@ -85,8 +86,8 @@ class ScanEnd(Exception):
 class Scanner(object):
 
     def __init__(self, lexicon, flags=0):
-        self.lexicon = lexicon
-        subpatterns = []
+        self.lexicon = list()
+        subpatterns = list()
 
         state = State()
         state.flags = flags
@@ -111,8 +112,8 @@ class Scanner(object):
 
         match = None
         for match in iter(sc.search if skip else sc.match, None):
-            rule, start, end = self.rules[match.lastindex - 1]
-            yield rule, _ScanMatch(match, rule, start, end)
+            action, start, end = self.lexicon[match.lastindex - 1]
+            yield action, ScanMatch(match, action, start, end)
 
         if not skip:
             end = match and match.end() or 0
@@ -121,11 +122,11 @@ class Scanner(object):
 
     def scan_with_holes(self, string):
         pos = 0
-        for rule, match in self.scan(string, skip=True):
+        for action, match in self.scan(string, skip=True):
             hole = string[pos:match.start()]
             if hole:
                 yield None, hole
-            yield rule, match
+            yield action, match
             pos = match.end()
         hole = string[pos:]
         if hole:
